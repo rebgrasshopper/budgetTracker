@@ -1,12 +1,9 @@
 console.log("Hello from service worker!")
 
-
-
-
 //serviceWorker install
 const cacheName = "myOfflineCache";
 //list all static files in your project
-const staticAssets = ["./", "./index.html", "./index.js", "./icons/icon-192x192.png", "./icons/icon-512x512.png"];
+const staticAssets = ["/", "/index.html", "/manifest.webmanifest", "/styles.css", "/index.js", "/service-worker.js", "/icons/icon-192x192.png", "/icons/icon-512x512.png"];
 
 self.addEventListener("install", async (event) => {
 //”caches” is an instance of the CacheStorage
@@ -46,21 +43,22 @@ self.addEventListener("activate", event => {
 //serviceWorker fetch
 self.addEventListener("fetch", async event => {
   // cache successful requests to the API
-  if (evt.request.url.includes("/api/")) {
-    evt.respondWith(
+  if (event.request.url.includes("/api/")) {
+    event.respondWith(
       caches.open(cacheName).then(cache => {
-        return fetch(evt.request)
+        return fetch(event.request)
           .then(response => {
             // If the response was good, clone it and store it in the cache.
             if (response.status === 200) {
-              cache.put(evt.request.url, response.clone());
+              cache.put(event.request.url, response.clone());
             }
 
-            return response;
+            toDoListStore.add({ listID: "1", status: event.request });
+            return response || cache.match(event.request);
           })
           .catch(err => {
             // Network request failed, try to get it from the cache.
-            return cache.match(evt.request);
+            return cache.match(event.request);
           });
       }).catch(err => console.log(err))
     );
