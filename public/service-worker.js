@@ -1,112 +1,79 @@
-console.log("Hello from service worker!")
 
-//serviceWorker install
-const cacheName = "myOfflineCache";
-//list all static files in your project
-const staticAssets = ["/", "/index.html", "/manifest.webmanifest", "/styles.css", "/index.js", "/service-worker.js", "/icons/icon-192x192.png", "/icons/icon-512x512.png"];
+const FILES_TO_CACHE = [
+  "/",
+  "/index.html",
+  "/styles.css",
+  "/index.js",
+  "/db.js",
+  "/icons/icon-192x192.png",
+  "/icons/icon-512x512.png",
+  "https://stackpath.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css",
+  "https://cdn.jsdelivr.net/npm/chart.js@2.8.0"
+];
 
-self.addEventListener("install", async (event) => {
-//”caches” is an instance of the CacheStorage
-//the method “open” returns a promise that resolves to 
-//the cache object matching the cache name
-  const cache = await caches.open(cacheName);
-  await cache.addAll(staticAssets);
-  //allow the newly installed service worker to move on to activation
-  return self.skipWaiting();
+const CACHE_NAME = "static-cache-v1";
+const DATA_CACHE_NAME = "data-cache-v1";
+
+self.addEventListener("install", (evt) => {
+  evt.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(FILES_TO_CACHE);
+    })
+  );
+
+  self.skipWaiting();
 });
 
-
-
-
-//serviceWorker activate
-self.addEventListener("activate", event => {
-    event.waitUntil(
-        caches.keys().then(keyList => {
-            return Promise.all(
-                keyList.map(key => {
-                    if (key !== cacheName) {
-                        console.log("Removing old cache data", key);
-                        return caches.delete(key);
-                    }
-                })
-            );
+self.addEventListener("activate", (evt) => {
+  // remove old caches
+  evt.waitUntil(
+    caches.keys().then((keyList) => {
+      return Promise.all(
+        keyList.map((key) => {
+          if (key !== CACHE_NAME && key !== DATA_CACHE_NAME) {
+            return caches.delete(key);
+          }
         })
-    );
+      );
+    })
+  );
 
-
-    self.clients.claim();
+  self.clients.claim();
 });
 
+self.addEventListener("fetch", (evt) => {
+  // cache successful GET requests to the API
+  if (evt.request.url.includes("/api/") && evt.request.method === "GET") {
+    evt.respondWith(
+      caches
+        .open(DATA_CACHE_NAME)
+        .then((cache) => {
+          return fetch(evt.request)
+            .then((response) => {
+              // If the response was good, clone it and store it in the cache.
+              if (response.status === 200) {
+                cache.put(evt.request, response.clone());
+              }
 
-
-
-//serviceWorker fetch
-self.addEventListener("fetch", async event => {
-  // cache successful requests to the API
-  if (event.request.url.includes("/api/")) {
-    event.respondWith(
-      caches.open(cacheName).then(cache => {
-        return fetch(event.request)
-          .then(response => {
-            // If the response was good, clone it and store it in the cache.
-            if (response.status === 200) {
-              cache.put(event.request.url, response.clone());
-            }
-
-            toDoListStore.add({ listID: "1", status: event.request });
-            return response || cache.match(event.request);
-          })
-          .catch(err => {
-            // Network request failed, try to get it from the cache.
-            return cache.match(event.request);
-          });
-      }).catch(err => console.log(err))
+              return response;
+            })
+            .catch(() => {
+              // Network request failed, try to get it from the cache.
+              return cache.match(evt.request);
+            });
+        })
+        .catch((err) => console.log(err))
     );
 
+    // stop execution of the fetch event callback
     return;
-
-
-
-    //     const req = event.request;
-//     const url = new URL(req.url);
-//   //check if the request is requiring data from our own application(location)
-//     if (url.origin === location.origin) {
-//   //check our cache
-//       event.respondWith(checkCache(req));
-//     } 
-//   //else, fetch from the network and cache that result
-//     else {
-//       event.respondWith(checkNetwork(req));
-//     }
-//   });
-  
-//   async function checkCache(req) {
-//   //open our cache
-//     const cache = await caches.open(cacheName);
-//   //check if there’s data there that match with what the request requires
-//     const cachedData = await cache.match(req);
-//   //if there’s data cached, return it, else fetch from the network
-//     return cachedData || fetch(req);
-//   }
-  
-//   async function checkNetwork(req) {
-//   //open our cache
-//     const cache = await caches.open(cacheName);
-//   //try to fetch data from the network
-//     try {
-//   //save the fetched data
-//       const freshData = await fetch(req);
-//   //save a copy of the response to your cache
-//       await cache.put(req, freshData.clone());
-//   //send the response back (returned the fetched data)
-//       return freshData;
-//     } 
-//   //if we are unable to fetch from the network (offline)
-//     catch (err) {
-//   //match the request with data from the cache
-//       const cachedData = await cache.match(req);
-//   //return the cached data
-//       return cachedData;
-//     }
   }
+
+  // if the request is not for the API, serve static assets using
+  // "offline-first" approach.
+  evt.respondWith(
+    caches.match(evt.request).then((response) => {
+      return response || fetch(evt.request);
+    })
+  );
 });
